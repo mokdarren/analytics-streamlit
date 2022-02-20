@@ -5,8 +5,6 @@ import seaborn as sns
 import numpy as np
 import yfinance as yf
 import time
-from contextlib import contextmanager, redirect_stdout
-from io import StringIO
 
 #portfolio optimisation module
 from pypfopt.efficient_frontier import EfficientFrontier
@@ -23,7 +21,7 @@ from helpers import filedownload
 def set_page_config():
     st.set_page_config(layout="wide")
     st.title('ESG Portfolio Optimiser (S&P)')
-
+    
     st.markdown("""
     This app retrieves the list of the **S&P 500** (from Wikipedia) and its corresponding **stock closing price** (year-to-date)! 
     This app will allow you to remove industry codes from the universe to generate your ESG portfolio 
@@ -42,11 +40,22 @@ def set_sidebar(combined_df):
     selected_sector = st.sidebar.multiselect('Sector to remove', sorted_sector_unique, ['Tobacco','Casinos & Gaming','Aerospace & Defense'])
 
     #Parameter: maximum weight of 1 asset
-    max_wt = st.sidebar.slider('Max weight (%)', 1, 100, value=20)
-    #Parameter: minimum esg score
-    min_esg_score = st.sidebar.slider('Minimum ESG score', 1, 100, value=80)
+    max_wt = st.sidebar.slider('Max weight (%)', 0, 100, value=10)/100
 
-    return selected_sector, max_wt, min_esg_score
+    #Parameter: minimum weight for 1 asset
+    min_wt = st.sidebar.slider('Min weight (%)', -100, 0, value=0)/100
+
+    #Parameter: minimum esg score
+    min_esg_score = st.sidebar.slider('Minimum ESG score (0-100)', 1, 100, value=80)
+    
+    #Parameter: objective function
+    objective_fn = st.sidebar.selectbox("Objective Function", ['Max Sharpe', 'Min Vol'], help="Use the Critical Line Algorithm to solve for selected objective function")
+
+    #Parameter: Risk free rate
+    risk_free_rate = st.sidebar.number_input("Risk Free Rate (%)", min_value = 0.0, max_value=20.0, step=0.01, value=6.5)/100
+
+
+    return selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate
     
 @st.cache
 def load_snp_data():
@@ -81,7 +90,7 @@ def display_filtered_universe(combined_df_filtered):
     st.header('Universe')
     st.write('Data Dimension: ' + str(combined_df_filtered.shape[0]) + ' rows and ' + str(combined_df_filtered.shape[1]) + ' columns.')
     st.dataframe(combined_df_filtered)
-    st.markdown(filedownload(combined_df_filtered), unsafe_allow_html=True)
+    st.markdown(filedownload(combined_df_filtered, "SP500.csv","Download ticker universe as CSV"), unsafe_allow_html=True)
 
 # note cache causes some error if code is not ready
 @st.cache 
@@ -96,33 +105,40 @@ def load_price_data(combined_df_filtered):
     cleaned_adj_close = data['Adj Close'].dropna(axis=1,how='all')
     return cleaned_adj_close
 
-def run_ef_model(cleaned_adj_close):    
-    
+def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate):
+    min_wt, max_wt = weight_bounds
     #Annualised return
     mu = expected_returns.mean_historical_return(cleaned_adj_close)
     #Sample var
     Sigma = risk_models.sample_cov(cleaned_adj_close)
-
-    #Max Sharpe Ratio - Tangent to the EF
-    #ef = EfficientFrontier(mu, Sigma, weight_bounds=(-1,1)) #weight bounds do not allow shorting of stocks
-    ef = CLA(mu, Sigma)
-    #ef.add_constraint(lambda x : x <= max_wt/100)
-
+    ef = CLA(mu, Sigma, weight_bounds=(min_wt,max_wt))
+    
     fig, ax = plt.subplots()
-    risk_free_rate = 0.0065
-
-    ax = pplt.plot_efficient_frontier(ef, show_assets=True)
-
-    ret_tangent, std_tangent, _ = ef.portfolio_performance(verbose=True, risk_free_rate = risk_free_rate)
-    #ef.max_sharpe()
-    ax.scatter(std_tangent, ret_tangent, marker="*", s=100, c="r", label="Max Sharpe")
+    ax = pplt.plot_efficient_frontier(ef, ef_param="risk", show_assets=True)
+    if objective_fn == "Max Sharpe":
+        asset_weights = ef.max_sharpe()
+    elif objective_fn == "Min Vol":
+        asset_weights = ef.min_volatility()
+    ret_tangent, std_tangent, _ = ef.portfolio_performance(risk_free_rate = risk_free_rate)
+    
+    ax.scatter(std_tangent, ret_tangent, marker="*", s=100, c="r", label=objective_fn)
     ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
-    st.pyplot(fig)
-    #st.write(ret_tangent, std_tangent)
-    st.write(ef.clean_weights())
+    ax.legend()
+    clean_wts = {key:value for (key,value) in asset_weights.items() if value != 0}
 
+    # Separate into 2 columns 
+    col1, col2 = st.columns(2)
+    col1.markdown(f"### Efficient Frontier: {objective_fn}")
+    col1.pyplot(fig)
 
+    col2.markdown("### Optimal portfolio weights:")
+    fig2, ax2 = plt.subplots()
+    ax2 = pplt.plot_weights(clean_wts)
+    col2.pyplot(fig2)
+    col2.write(clean_wts)
+    col2.markdown(f'Annualised Returns: {ret_tangent*100:.2f}%  \n Sigma: {std_tangent*100:.2f}%  \n Sharpe Ratio: {(ret_tangent-risk_free_rate)/std_tangent:.2f}')
+    
 # Global variables
 ESG_SCORE_FILENAME = "esg_scores.xlsx"
 
@@ -130,15 +146,19 @@ def main():
     # Main logic
     set_page_config()
     combined_df = load_all_data()
-    selected_sector, max_wt , min_esg_score = set_sidebar(combined_df)
+    selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate = set_sidebar(combined_df)
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
     display_filtered_universe(combined_df_filtered)
-    if st.button('Download Price data'):
+
+    if st.button(f'Load Price data for {len(combined_df_filtered)} tickers'):
         cleaned_adj_close = load_price_data(combined_df_filtered)
+        st.markdown(filedownload(cleaned_adj_close, "adj_close.csv","Download price data as CSV", index=True), unsafe_allow_html=True)
     else:
         st.stop()
 
-    run_ef_model(cleaned_adj_close)
+    run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
+
+    #plot price of portfolio over last few days
     
 main()
 
