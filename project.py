@@ -25,7 +25,7 @@ def set_page_config():
     st.markdown("""
     This app retrieves the list of the **S&P 500** (from Wikipedia) and its corresponding **stock closing price** (year-to-date)! 
     This app will allow you to remove industry codes from the universe to generate your ESG portfolio 
-    * **Python libraries:** base64, pandas, streamlit, numpy, matplotlib, seaborn, pypfopt
+    * **Python libraries:** base64, pandas, streamlit, numpy, matplotlib, seaborn, pypfopt, yfinance
     * **Data source:** 
         * [Wikipedia](https://en.wikipedia.org/wiki/List_of_S%26P_500_companies).
         * [yfinance](https://github.com/ranaroussi/yfinance).
