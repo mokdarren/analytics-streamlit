@@ -1,0 +1,6 @@
+streamlit==1.5.1
+yfinance==0.1.70
+matplotlib==3.5.1
+pandas==1.4.1
+seaborn==0.11.2
+pyportfolioopt==1.5.1
