@@ -54,8 +54,10 @@ def set_sidebar(combined_df):
     #Parameter: Risk free rate
     risk_free_rate = st.sidebar.number_input("Risk Free Rate (%)", min_value = 0.0, max_value=20.0, step=0.01, value=6.5)/100
 
+    #Parameter: Period to download
+    period = st.sidebar.selectbox("Data load period", ['ytd','1mo','3mo','6mo','1y','2y','5y','10y','max'])
 
-    return selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate
+    return selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period
     
 @st.cache
 def load_snp_data():
@@ -96,10 +98,10 @@ def display_filtered_universe(combined_df_filtered):
 
 # note cache causes some error if code is not ready
 @st.cache 
-def load_price_data(combined_df_filtered):
+def load_price_data(combined_df_filtered, period):
     data = yf.download(
             tickers = list(combined_df_filtered.Symbol),
-            period = "ytd",
+            period = period,
             interval = "1D",
             threads = True
         )
@@ -181,12 +183,12 @@ def main():
     # Main logic
     set_page_config()
     combined_df = load_all_data()
-    selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate = set_sidebar(combined_df)
+    selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period = set_sidebar(combined_df)
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
     display_filtered_universe(combined_df_filtered)
 
     if st.button(f'Load Price data for {len(combined_df_filtered)} tickers'):
-        cleaned_adj_close = load_price_data(combined_df_filtered)
+        cleaned_adj_close = load_price_data(combined_df_filtered, period)
         st.markdown(filedownload(cleaned_adj_close, "adj_close.csv","Download price data as CSV", index=True), unsafe_allow_html=True)
     else:
         st.stop()
