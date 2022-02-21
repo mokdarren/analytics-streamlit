@@ -73,7 +73,7 @@ def load_esg_scores():
 def load_all_data():
     snp_data = load_snp_data()
     esg_scores = load_esg_scores()
-    return pd.merge(snp_data,esg_scores,on='Symbol')
+    return pd.merge(snp_data,esg_scores,on='Symbol').sort_values(by="Symbol").reset_index(drop=True)
 
 def clean_data(combined_df, selected_sector, min_esg_score):
     # Filtering data
@@ -81,9 +81,11 @@ def clean_data(combined_df, selected_sector, min_esg_score):
     combined_df_filtered = combined_df_filtered.drop(columns=['SEC filings','CIK','ticker_name'])
     
     # Removing tickers below ESG threshold set
-    combined_df = combined_df[combined_df['esg_score']>min_esg_score]
+    combined_df_filtered = combined_df_filtered[combined_df_filtered['esg_score']>min_esg_score].dropna(axis=1,how='all') #NEW
     
-    return combined_df
+    # Reset index for cleaner display
+    combined_df_filtered = combined_df_filtered.reset_index(drop=True)
+    return combined_df_filtered
 
 def display_filtered_universe(combined_df_filtered):
     esg_positive_tickers = combined_df_filtered.Symbol
@@ -139,8 +141,41 @@ def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate)
     col2.write(clean_wts)
     col2.markdown(f'Annualised Returns: {ret_tangent*100:.2f}%  \n Sigma: {std_tangent*100:.2f}%  \n Sharpe Ratio: {(ret_tangent-risk_free_rate)/std_tangent:.2f}')
     
+    # For performance plotting
+    return asset_weights
+
+# wrote a simple function for performance plotting for now; have not included it in the main() body yet
+def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark):
+    returns = np.log(cleaned_adj_close).diff()
+    for asset, weight in asset_weights.items():
+        returns[asset] = returns[asset] * weight
+    returns['Portfolio_Ret'] = returns.sum(axis=1, skipna=True)
+    returns = returns.cumsum()
+
+    benchmark_adj_close = yf.download(
+                            tickers = benchmark,
+                            period = "ytd",
+                            interval = "1D",
+                            threads = True
+                        )['Adj Close'].rename(benchmark)
+    benchmark_returns = np.log(benchmark_adj_close).diff().cumsum()
+    benchmark_returns.iloc[0] = 0
+
+    returns = returns.join(benchmark_returns)
+
+    fig, ax = plt.subplots(figsize=(8,5))
+    ax.set_ylabel("Cumulative Return")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
+    ax = plt.plot(returns[['Portfolio_Ret', benchmark]], label=['Optimal Portfolio',benchmark])
+
+    plt.xticks(rotation=45)
+    plt.legend()
+    st.pyplot(fig)
+        
+        
 # Global variables
 ESG_SCORE_FILENAME = "esg_scores.xlsx"
+BENCHMARK = "^GSPC" #S&P500 index
 
 def main():
     # Main logic
@@ -156,9 +191,9 @@ def main():
     else:
         st.stop()
 
-    run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
-
-    #plot price of portfolio over last few days
+    asset_weights = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
+    #plotting
+    plot_portfolio_performance(cleaned_adj_close, asset_weights, BENCHMARK)
     
 main()
 
