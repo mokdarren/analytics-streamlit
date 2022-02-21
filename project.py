@@ -83,11 +83,13 @@ def clean_data(combined_df, selected_sector, min_esg_score):
     combined_df_filtered = combined_df_filtered.drop(columns=['SEC filings','CIK','ticker_name'])
     
     # Removing tickers below ESG threshold set
+    #combined_df = combined_df[combined_df['esg_score']>min_esg_score] OLD
     combined_df_filtered = combined_df_filtered[combined_df_filtered['esg_score']>min_esg_score].dropna(axis=1,how='all') #NEW
     
     # Reset index for cleaner display
     combined_df_filtered = combined_df_filtered.reset_index(drop=True)
-    return combined_df_filtered
+    #return combined_df OLD
+    return combined_df_filtered #NEW
 
 def display_filtered_universe(combined_df_filtered):
     esg_positive_tickers = combined_df_filtered.Symbol
@@ -138,7 +140,7 @@ def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate)
 
     col2.markdown("### Optimal portfolio weights:")
     fig2, ax2 = plt.subplots()
-    ax2 = pplt.plot_weights(clean_wts)
+    pplt.plot_weights(clean_wts)
     col2.pyplot(fig2)
     col2.write(clean_wts)
     col2.markdown(f'Annualised Returns: {ret_tangent*100:.2f}%  \n Sigma: {std_tangent*100:.2f}%  \n Sharpe Ratio: {(ret_tangent-risk_free_rate)/std_tangent:.2f}')
@@ -147,16 +149,16 @@ def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate)
     return asset_weights
 
 # wrote a simple function for performance plotting for now; have not included it in the main() body yet
-def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark):
+def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark, period):
     returns = np.log(cleaned_adj_close).diff()
     for asset, weight in asset_weights.items():
         returns[asset] = returns[asset] * weight
     returns['Portfolio_Ret'] = returns.sum(axis=1, skipna=True)
     returns = returns.cumsum()
-
+    
     benchmark_adj_close = yf.download(
                             tickers = benchmark,
-                            period = "ytd",
+                            period = period,
                             interval = "1D",
                             threads = True
                         )['Adj Close'].rename(benchmark)
@@ -165,10 +167,11 @@ def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark):
 
     returns = returns.join(benchmark_returns)
 
+    st.markdown("### Portfolio results:")
     fig, ax = plt.subplots(figsize=(8,5))
     ax.set_ylabel("Cumulative Return")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
-    ax = plt.plot(returns[['Portfolio_Ret', benchmark]], label=['Optimal Portfolio',benchmark])
+    plt.plot(returns[['Portfolio_Ret', benchmark]], label=['Optimal Portfolio',benchmark])
 
     plt.xticks(rotation=45)
     plt.legend()
@@ -195,7 +198,7 @@ def main():
 
     asset_weights = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
     #plotting
-    plot_portfolio_performance(cleaned_adj_close, asset_weights, BENCHMARK)
+    plot_portfolio_performance(cleaned_adj_close, asset_weights, BENCHMARK, period)
     
 main()
 
