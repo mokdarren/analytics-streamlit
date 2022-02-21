@@ -54,8 +54,10 @@ def set_sidebar(combined_df):
     #Parameter: Risk free rate
     risk_free_rate = st.sidebar.number_input("Risk Free Rate (%)", min_value = 0.0, max_value=20.0, step=0.01, value=6.5)/100
 
+    #Parameter: Period to download
+    period = st.sidebar.selectbox("Data load period", ['ytd','1mo','3mo','6mo','1y','2y','5y','10y','max'])
 
-    return selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate
+    return selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period
     
 @st.cache
 def load_snp_data():
@@ -98,10 +100,10 @@ def display_filtered_universe(combined_df_filtered):
 
 # note cache causes some error if code is not ready
 @st.cache 
-def load_price_data(combined_df_filtered):
+def load_price_data(combined_df_filtered, period):
     data = yf.download(
             tickers = list(combined_df_filtered.Symbol),
-            period = "ytd",
+            period = period,
             interval = "1D",
             threads = True
         )
@@ -138,7 +140,7 @@ def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate)
 
     col2.markdown("### Optimal portfolio weights:")
     fig2, ax2 = plt.subplots()
-    ax2 = pplt.plot_weights(clean_wts)
+    pplt.plot_weights(clean_wts)
     col2.pyplot(fig2)
     col2.write(clean_wts)
     col2.markdown(f'Annualised Returns: {ret_tangent*100:.2f}%  \n Sigma: {std_tangent*100:.2f}%  \n Sharpe Ratio: {(ret_tangent-risk_free_rate)/std_tangent:.2f}')
@@ -147,7 +149,7 @@ def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate)
     return asset_weights
 
 # wrote a simple function for performance plotting for now; have not included it in the main() body yet
-def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark):
+def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark, period):
     returns = np.log(cleaned_adj_close).diff()
     for asset, weight in asset_weights.items():
         returns[asset] = returns[asset] * weight
@@ -156,39 +158,47 @@ def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark):
     
     benchmark_adj_close = yf.download(
                             tickers = benchmark,
-                            period = "ytd",
+                            period = period,
                             interval = "1D",
                             threads = True
                         )['Adj Close'].rename(benchmark)
     benchmark_returns = np.log(benchmark_adj_close).diff().cumsum()
     benchmark_returns.iloc[0] = 0
-    
+
     returns = returns.join(benchmark_returns)
-    
-    fig, ax = plt.subplots()
-    ax = plt.plot(returns[['Portfolio_Ret', "^GSPC"]])
+
+    st.markdown("### Portfolio results:")
+    fig, ax = plt.subplots(figsize=(8,5))
+    ax.set_ylabel("Cumulative Return")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
+    plt.plot(returns[['Portfolio_Ret', benchmark]], label=['Optimal Portfolio',benchmark])
+
+    plt.xticks(rotation=45)
+    plt.legend()
+    st.pyplot(fig)
         
         
 # Global variables
 ESG_SCORE_FILENAME = "esg_scores.xlsx"
+BENCHMARK = "^GSPC" #S&P500 index
 
 def main():
     # Main logic
     set_page_config()
     combined_df = load_all_data()
-    selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate = set_sidebar(combined_df)
+    selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period = set_sidebar(combined_df)
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
     display_filtered_universe(combined_df_filtered)
 
     if st.button(f'Load Price data for {len(combined_df_filtered)} tickers'):
-        cleaned_adj_close = load_price_data(combined_df_filtered)
+        cleaned_adj_close = load_price_data(combined_df_filtered, period)
         st.markdown(filedownload(cleaned_adj_close, "adj_close.csv","Download price data as CSV", index=True), unsafe_allow_html=True)
     else:
         st.stop()
 
     asset_weights = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
-
-    #plot price of portfolio over last few days
+    #plotting
+    plot_portfolio_performance(cleaned_adj_close, asset_weights, BENCHMARK, period)
     
 main()
 
