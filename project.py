@@ -27,8 +27,9 @@ def set_page_config():
     This app will allow you to remove industry codes from the universe to generate your ESG portfolio 
     * **Python libraries:** base64, pandas, streamlit, numpy, matplotlib, seaborn, pypfopt, yfinance
     * **Data source:** 
-        * [Wikipedia](https://en.wikipedia.org/wiki/List_of_S%26P_500_companies).
-        * [yfinance](https://github.com/ranaroussi/yfinance).
+        * [wikipedia (Tickers)](https://en.wikipedia.org/wiki/List_of_S%26P_500_companies)
+        * [yfinance (Price)](https://github.com/ranaroussi/yfinance)
+        * [refinitiv (ESG scores)](https://www.refinitiv.com/en/products/refinitiv-workspace/download-workspace)
     """)
 
 def set_sidebar(combined_df):
