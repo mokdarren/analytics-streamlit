@@ -69,6 +69,7 @@ def set_sidebar(combined_df):
         # Number of Views (Limited to 3 views for now, only absolute views, min 1 view)
         views = st.sidebar.selectbox("Number of views", ['1', '2', '3'])
         inputs = clean_data(combined_df, selected_sector, min_esg_score)
+        tickers = list(inputs.Symbol)
 
         for i in range(int(views)):
             views_text = "Views for Ticker " + str(i+1)
@@ -78,6 +79,11 @@ def set_sidebar(combined_df):
             # Absolute View
             view = st.sidebar.slider(returns_text, -100, 100, value=0)/100
             views_dict[ticker] = view
+
+        view_ticker = list(views_dict.keys())
+        for i in tickers:
+            if i not in view_ticker:
+                views_dict[i] = 0
 
     return selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict
     
@@ -134,10 +140,9 @@ def load_price_data(combined_df_filtered, period):
     return cleaned_adj_close
 
 @st.cache
-def get_market_cap(combined_df_filtered):
+def get_market_cap(combined_df_filtered): # takes a while to run
     mcaps = {}
     tickers = list(combined_df_filtered.Symbol)
-    # mcaps = ek.get_data(tickers, "TR.CompanyMarketCap(ShType=DEF)").to_dict("index")
     for i in tickers:
         market_cap = yf.Ticker(i).info["marketCap"]
         mcaps[i] = market_cap
@@ -240,15 +245,16 @@ def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark, peri
     benchmark_returns.iloc[0] = 0
 
     returns = returns.join(benchmark_returns)
+    st.write(returns[['Portfolio_Ret', benchmark]])
 
     st.markdown("### Portfolio results:")
     fig, ax = plt.subplots(figsize=(8,5))
     ax.set_ylabel("Cumulative Return")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
-    plt.plot(returns[['Portfolio_Ret', benchmark]], label=['Optimal Portfolio',benchmark])
+    plt.plot(returns[['Portfolio_Ret', benchmark]])
 
     plt.xticks(rotation=45)
-    plt.legend()
+    plt.legend(['Optimal Portfolio', str(benchmark)])
     st.pyplot(fig)
         
         
