@@ -13,6 +13,9 @@ from pypfopt import expected_returns
 from pypfopt.cla import CLA
 from matplotlib.ticker import FuncFormatter
 from pypfopt import discrete_allocation
+from pypfopt import black_litterman
+from pypfopt.black_litterman import BlackLittermanModel
+from pypfopt import objective_functions
 import pypfopt.plotting as pplt
 
 #import from other files
@@ -40,6 +43,9 @@ def set_sidebar(combined_df):
     sorted_sector_unique = sorted( combined_df['GICS Sub-Industry'].unique() )
     selected_sector = st.sidebar.multiselect('Sector to remove', sorted_sector_unique, ['Tobacco','Casinos & Gaming','Aerospace & Defense'])
 
+    # Model Selection 
+    model = st.sidebar.selectbox("Model", ['Modern Portfolio Theory', 'Black-Litterman'])
+
     #Parameter: maximum weight of 1 asset
     max_wt = st.sidebar.slider('Max weight (%)', 0, 100, value=10)/100
 
@@ -58,7 +64,22 @@ def set_sidebar(combined_df):
     #Parameter: Period to download
     period = st.sidebar.selectbox("Data load period", ['ytd','1mo','3mo','6mo','1y','2y','5y','10y','max'])
 
-    return selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period
+    views_dict = {}
+    if model == "Black-Litterman":
+        # Number of Views (Limited to 3 views for now, only absolute views, min 1 view)
+        views = st.sidebar.selectbox("Number of views", ['1', '2', '3'])
+        inputs = clean_data(combined_df, selected_sector, min_esg_score)
+
+        for i in range(int(views)):
+            views_text = "Views for Ticker " + str(i+1)
+            returns_text = 'Returns ' + str(i+1)
+            # Ticker
+            ticker = st.sidebar.selectbox(views_text, inputs)
+            # Absolute View
+            view = st.sidebar.slider(returns_text, -100, 100, value=0)/100
+            views_dict[ticker] = view
+
+    return selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict
     
 @st.cache
 def load_snp_data():
@@ -112,6 +133,16 @@ def load_price_data(combined_df_filtered, period):
     cleaned_adj_close = data['Adj Close'].dropna(axis=1,how='all')
     return cleaned_adj_close
 
+@st.cache
+def get_market_cap(combined_df_filtered):
+    mcaps = {}
+    tickers = list(combined_df_filtered.Symbol)
+    # mcaps = ek.get_data(tickers, "TR.CompanyMarketCap(ShType=DEF)").to_dict("index")
+    for i in tickers:
+        market_cap = yf.Ticker(i).info["marketCap"]
+        mcaps[i] = market_cap
+    return mcaps
+
 def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate):
     min_wt, max_wt = weight_bounds
     #Annualised return
@@ -128,6 +159,48 @@ def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate)
         asset_weights = ef.min_volatility()
     ret_tangent, std_tangent, _ = ef.portfolio_performance(risk_free_rate = risk_free_rate)
     
+    ax.scatter(std_tangent, ret_tangent, marker="*", s=100, c="r", label=objective_fn)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
+    ax.legend()
+    clean_wts = {key:value for (key,value) in asset_weights.items() if value != 0}
+
+    # Separate into 2 columns 
+    col1, col2 = st.columns(2)
+    col1.markdown(f"### Efficient Frontier: {objective_fn}")
+    col1.pyplot(fig)
+
+    col2.markdown("### Optimal portfolio weights:")
+    fig2, ax2 = plt.subplots()
+    pplt.plot_weights(clean_wts)
+    col2.pyplot(fig2)
+    col2.write(clean_wts)
+    col2.markdown(f'Annualised Returns: {ret_tangent*100:.2f}%  \n Sigma: {std_tangent*100:.2f}%  \n Sharpe Ratio: {(ret_tangent-risk_free_rate)/std_tangent:.2f}')
+    
+    # For performance plotting
+    return asset_weights
+
+def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bounds, objective_fn):
+    min_wt, max_wt = weight_bounds
+
+    delta = black_litterman.market_implied_risk_aversion(cleaned_adj_close, risk_free_rate = risk_free_rate)
+    cov_matrix = risk_models.sample_cov(cleaned_adj_close) # can explore other covariance methods
+    prior = black_litterman.market_implied_prior_returns(mcaps, delta, cov_matrix)
+    bl = BlackLittermanModel(cov_matrix, pi = prior, absolute_views=views_dict)
+
+    rets = bl.bl_returns()
+    cov = bl.bl_cov()
+    ef = CLA(rets, cov, weight_bounds = (min_wt,max_wt)) # ef = EfficientFrontier(rets, cov, weight_bounds = (min_wt,max_wt))
+    # ef.add_objective(objective_functions.L2_reg, gamma=0.1) #ridge regression 
+
+    fig, ax = plt.subplots()
+    ax = pplt.plot_efficient_frontier(ef, ef_param="risk", show_assets=True)
+    if objective_fn == "Max Sharpe":
+        asset_weights = ef.max_sharpe()
+    elif objective_fn == "Min Vol":
+        asset_weights = ef.min_volatility()
+    ret_tangent, std_tangent, _ = ef.portfolio_performance(risk_free_rate = risk_free_rate)
+
     ax.scatter(std_tangent, ret_tangent, marker="*", s=100, c="r", label=objective_fn)
     ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
@@ -187,7 +260,7 @@ def main():
     # Main logic
     set_page_config()
     combined_df = load_all_data()
-    selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period = set_sidebar(combined_df)
+    selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict = set_sidebar(combined_df)
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
     display_filtered_universe(combined_df_filtered)
 
@@ -197,8 +270,12 @@ def main():
     else:
         st.stop()
 
-    asset_weights = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
-    #plotting
+    if model == "Black-Litterman":
+        mcaps = get_market_cap(combined_df_filtered)
+        asset_weights = run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn)
+    else:
+        asset_weights = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
+    # plotting
     plot_portfolio_performance(cleaned_adj_close, asset_weights, BENCHMARK, period)
     
 main()
