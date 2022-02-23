@@ -245,7 +245,6 @@ def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark, peri
     benchmark_returns.iloc[0] = 0
 
     returns = returns.join(benchmark_returns)
-    st.write(returns[['Portfolio_Ret', benchmark]])
 
     st.markdown("### Portfolio results:")
     fig, ax = plt.subplots(figsize=(8,5))
