@@ -66,8 +66,8 @@ def set_sidebar(combined_df):
 
     views_dict = {}
     if model == "Black-Litterman":
-        # Number of Views (Limited to 3 views for now, only absolute views, min 1 view)
-        views = st.sidebar.selectbox("Number of views", ['1', '2', '3'])
+        # Number of Views (Limited to 10 views for now, only absolute views, min 1 view)
+        views = st.sidebar.selectbox("Number of views", ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'])
         inputs = clean_data(combined_df, selected_sector, min_esg_score)
         tickers = list(inputs.Symbol)
 
@@ -99,6 +99,17 @@ def load_snp_data():
 def load_esg_scores():
     esg_scores = pd.read_excel(ESG_SCORE_FILENAME)
     return esg_scores
+
+def load_mcaps(combined_df_filtered):
+    mcaps = pd.read_excel(MCAP_FILENAME)
+    to_keep = list(combined_df_filtered.Symbol)
+    df_tokeep = mcaps[mcaps["ticker"].isin(to_keep)]
+    df_tokeep = df_tokeep.reset_index()
+
+    mcaps = {}
+    for index, row in df_tokeep.iterrows():
+        mcaps[row['ticker']] = row['mcap']
+    return mcaps
 
 def load_all_data():
     snp_data = load_snp_data()
@@ -139,14 +150,15 @@ def load_price_data(combined_df_filtered, period):
     cleaned_adj_close = data['Adj Close'].dropna(axis=1,how='all')
     return cleaned_adj_close
 
-@st.cache
-def get_market_cap(combined_df_filtered): # takes a while to run
-    mcaps = {}
-    tickers = list(combined_df_filtered.Symbol)
-    for i in tickers:
-        market_cap = yf.Ticker(i).info["marketCap"]
-        mcaps[i] = market_cap
-    return mcaps
+# @st.cache
+# too slow to extract it in real time - extracting beforehand
+# def get_market_cap(combined_df_filtered): # takes a while to run
+#     mcaps = {}
+#     tickers = list(combined_df_filtered.Symbol)
+#     for i in tickers:
+#         market_cap = yf.Ticker(i).info["marketCap"]
+#         mcaps[i] = market_cap
+#     return mcaps
 
 def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate):
     min_wt, max_wt = weight_bounds
@@ -259,6 +271,7 @@ def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark, peri
         
 # Global variables
 ESG_SCORE_FILENAME = "esg_scores.xlsx"
+MCAP_FILENAME = "mcap.xlsx"
 BENCHMARK = "^GSPC" #S&P500 index
 
 def main():
@@ -276,7 +289,7 @@ def main():
         st.stop()
 
     if model == "Black-Litterman":
-        mcaps = get_market_cap(combined_df_filtered)
+        mcaps = load_mcaps(combined_df_filtered)
         asset_weights = run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn)
     else:
         asset_weights = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
