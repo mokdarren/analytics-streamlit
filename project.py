@@ -160,44 +160,17 @@ def load_price_data(combined_df_filtered, period):
 #         mcaps[i] = market_cap
 #     return mcaps
 
-def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate):
+def run_ef_model(cleaned_adj_close, weight_bounds):
     min_wt, max_wt = weight_bounds
     #Annualised return
     mu = expected_returns.mean_historical_return(cleaned_adj_close)
     #Sample var
     Sigma = risk_models.sample_cov(cleaned_adj_close)
     ef = CLA(mu, Sigma, weight_bounds=(min_wt,max_wt))
-    
-    fig, ax = plt.subplots()
-    ax = pplt.plot_efficient_frontier(ef, ef_param="risk", show_assets=True)
-    if objective_fn == "Max Sharpe":
-        asset_weights = ef.max_sharpe()
-    elif objective_fn == "Min Vol":
-        asset_weights = ef.min_volatility()
-    ret_tangent, std_tangent, _ = ef.portfolio_performance(risk_free_rate = risk_free_rate)
-    
-    ax.scatter(std_tangent, ret_tangent, marker="*", s=100, c="r", label=objective_fn)
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
-    ax.legend()
-    clean_wts = {key:value for (key,value) in asset_weights.items() if value != 0}
 
-    # Separate into 2 columns 
-    col1, col2 = st.columns(2)
-    col1.markdown(f"### Efficient Frontier: {objective_fn}")
-    col1.pyplot(fig)
+    return ef
 
-    col2.markdown("### Optimal portfolio weights:")
-    fig2, ax2 = plt.subplots()
-    pplt.plot_weights(clean_wts)
-    col2.pyplot(fig2)
-    col2.write(clean_wts)
-    col2.markdown(f'Annualised Returns: {ret_tangent*100:.2f}%  \n Sigma: {std_tangent*100:.2f}%  \n Sharpe Ratio: {(ret_tangent-risk_free_rate)/std_tangent:.2f}')
-    
-    # For performance plotting
-    return asset_weights
-
-def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bounds, objective_fn):
+def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bounds):
     min_wt, max_wt = weight_bounds
 
     delta = black_litterman.market_implied_risk_aversion(cleaned_adj_close, risk_free_rate = risk_free_rate)
@@ -210,6 +183,9 @@ def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bo
     ef = CLA(rets, cov, weight_bounds = (min_wt,max_wt)) # ef = EfficientFrontier(rets, cov, weight_bounds = (min_wt,max_wt))
     # ef.add_objective(objective_functions.L2_reg, gamma=0.1) #ridge regression 
 
+    return ef
+
+def results(ef, objective_fn, risk_free_rate):
     fig, ax = plt.subplots()
     ax = pplt.plot_efficient_frontier(ef, ef_param="risk", show_assets=True)
     if objective_fn == "Max Sharpe":
@@ -217,7 +193,7 @@ def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bo
     elif objective_fn == "Min Vol":
         asset_weights = ef.min_volatility()
     ret_tangent, std_tangent, _ = ef.portfolio_performance(risk_free_rate = risk_free_rate)
-
+    
     ax.scatter(std_tangent, ret_tangent, marker="*", s=100, c="r", label=objective_fn)
     ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
@@ -290,9 +266,11 @@ def main():
 
     if model == "Black-Litterman":
         mcaps = load_mcaps(combined_df_filtered)
-        asset_weights = run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn)
+        ef = run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt))
+        asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
     else:
-        asset_weights = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
+        ef = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt))
+        asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
     # plotting
     plot_portfolio_performance(cleaned_adj_close, asset_weights, BENCHMARK, period)
     
