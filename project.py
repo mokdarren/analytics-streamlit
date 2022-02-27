@@ -181,8 +181,8 @@ def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bo
     min_wt, max_wt = weight_bounds
 
     delta = black_litterman.market_implied_risk_aversion(cleaned_adj_close, risk_free_rate = risk_free_rate)
-    # cov_matrix = risk_models.sample_cov(cleaned_adj_close) # can explore other covariance methods
-    cov_matrix = risk_models.CovarianceShrinkage(cleaned_adj_close).ledoit_wolf()
+    cov_matrix = risk_models.sample_cov(cleaned_adj_close) # can explore other covariance methods
+    # cov_matrix = risk_models.CovarianceShrinkage(cleaned_adj_close).ledoit_wolf()
     prior = black_litterman.market_implied_prior_returns(mcaps, delta, cov_matrix)
     bl = BlackLittermanModel(cov_matrix, pi = prior, absolute_views=views_dict, omega="idzorek", view_confidences=view_confidence)
 
