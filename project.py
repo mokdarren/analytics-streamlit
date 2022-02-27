@@ -106,6 +106,7 @@ def clean_data(combined_df, selected_sector, min_esg_score):
     
     # Reset index for cleaner display
     combined_df_filtered = combined_df_filtered.reset_index(drop=True)
+
     return combined_df_filtered
     
 def display_filtered_universe(combined_df_filtered):
@@ -249,13 +250,15 @@ def main():
     selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period = set_sidebar(combined_df)
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
     display_filtered_universe(combined_df_filtered)
-        
+    
     if model == "Black-Litterman":
         st.markdown("## Black Litterman Views")
         tickers = list(combined_df_filtered.Symbol)
         views_dict, view_confidence = get_user_input_black_litterman(tickers)  
 
-    if st.button(f'Load Price data for {len(combined_df_filtered)} tickers'):
+    if len(combined_df_filtered) > 100:
+        st.markdown(f"Too many tickers in universe for model to solve. Current: {len(combined_df_filtered)} Maximum: 100 ")
+    elif st.button(f'Load Price data for {len(combined_df_filtered)} tickers'):
         cleaned_adj_close = load_price_data(combined_df_filtered, period)
         st.markdown(filedownload(cleaned_adj_close, "adj_close.csv","Download price data as CSV", index=True), unsafe_allow_html=True)
     else:
