@@ -252,9 +252,10 @@ def main():
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
 
     gb = GridOptionsBuilder.from_dataframe(combined_df_filtered)
+    gb.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=True)
     gb.configure_selection(selection_mode='multiple', use_checkbox=True, pre_selected_rows = list(range(len(combined_df_filtered))), )
     grid_options = gb.build()
-    grid_response = AgGrid(combined_df_filtered, gridOptions=grid_options, update_mode="SELECTION_CHANGED")
+    grid_response = AgGrid(combined_df_filtered, gridOptions=grid_options, data_return_mode="AS_INPUT", update_mode="SELECTION_CHANGED")
 
     grid_data = grid_response['data']
     selected = pd.DataFrame(grid_response['selected_rows'])
