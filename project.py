@@ -17,6 +17,7 @@ from pypfopt import black_litterman
 from pypfopt.black_litterman import BlackLittermanModel
 from pypfopt import objective_functions
 import pypfopt.plotting as pplt
+from st_aggrid import AgGrid
 
 #import from other files
 from helpers import filedownload
@@ -62,37 +63,9 @@ def set_sidebar(combined_df):
     risk_free_rate = st.sidebar.number_input("Risk Free Rate (%)", min_value = 0.0, max_value=20.0, step=0.01, value=6.5)/100
 
     #Parameter: Period to download
-    period = st.sidebar.selectbox("Data load period", ['ytd','1mo','3mo','6mo','1y','2y','5y','10y','max'])
+    period = st.sidebar.selectbox("Data load period", ['ytd','1mo','3mo','6mo','1y','2y','5y','10y','max'])    
 
-    views_dict = {}
-    view_confidence = []
-    if model == "Black-Litterman":
-        # Number of Views (Limited to 10 views for now, only absolute views, min 1 view)
-        views = st.sidebar.selectbox("Number of views", ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'])
-        inputs = clean_data(combined_df, selected_sector, min_esg_score)
-        tickers = list(inputs.Symbol)
-        view_confidence = np.zeros(len(tickers))
-
-        for i in range(int(views)):
-            views_text = "Views for Ticker " + str(i+1)
-            returns_text = 'Returns ' + str(i+1)
-            confidence_text = 'Confidence of view ' + str(i+1) +  " (%)"
-            # Ticker
-            ticker = st.sidebar.selectbox(views_text, inputs)
-            # Absolute View
-            view = st.sidebar.slider(returns_text, -100, 100, value=0)/100
-            # Confidence
-            confidence = st.sidebar.slider(confidence_text, 0, 100, value=0)/100
-            views_dict[ticker] = view
-            index = tickers.index(ticker)
-            view_confidence[index] = confidence
-
-        view_ticker = list(views_dict.keys())
-        for i in tickers:
-            if i not in view_ticker:
-                views_dict[i] = 0
-
-    return selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict, view_confidence
+    return selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period
     
 @st.cache
 def load_snp_data():
@@ -129,16 +102,13 @@ def clean_data(combined_df, selected_sector, min_esg_score):
     combined_df_filtered = combined_df_filtered.drop(columns=['SEC filings','CIK','ticker_name'])
     
     # Removing tickers below ESG threshold set
-    #combined_df = combined_df[combined_df['esg_score']>min_esg_score] OLD
     combined_df_filtered = combined_df_filtered[combined_df_filtered['esg_score']>min_esg_score].dropna(axis=1,how='all') #NEW
     
     # Reset index for cleaner display
     combined_df_filtered = combined_df_filtered.reset_index(drop=True)
-    #return combined_df OLD
-    return combined_df_filtered #NEW
-
+    return combined_df_filtered
+    
 def display_filtered_universe(combined_df_filtered):
-    esg_positive_tickers = combined_df_filtered.Symbol
     st.header('Universe')
     st.write('Data Dimension: ' + str(combined_df_filtered.shape[0]) + ' rows and ' + str(combined_df_filtered.shape[1]) + ' columns.')
     st.dataframe(combined_df_filtered)
@@ -157,16 +127,6 @@ def load_price_data(combined_df_filtered, period):
     cleaned_adj_close = data['Adj Close'].dropna(axis=1,how='all')
     return cleaned_adj_close
 
-# @st.cache
-# too slow to extract it in real time - extracting beforehand
-# def get_market_cap(combined_df_filtered): # takes a while to run
-#     mcaps = {}
-#     tickers = list(combined_df_filtered.Symbol)
-#     for i in tickers:
-#         market_cap = yf.Ticker(i).info["marketCap"]
-#         mcaps[i] = market_cap
-#     return mcaps
-
 def run_ef_model(cleaned_adj_close, weight_bounds):
     min_wt, max_wt = weight_bounds
     #Annualised return
@@ -182,14 +142,12 @@ def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bo
 
     delta = black_litterman.market_implied_risk_aversion(cleaned_adj_close, risk_free_rate = risk_free_rate)
     cov_matrix = risk_models.sample_cov(cleaned_adj_close) # can explore other covariance methods
-    # cov_matrix = risk_models.CovarianceShrinkage(cleaned_adj_close).ledoit_wolf()
     prior = black_litterman.market_implied_prior_returns(mcaps, delta, cov_matrix)
     bl = BlackLittermanModel(cov_matrix, pi = prior, absolute_views=views_dict, omega="idzorek", view_confidences=view_confidence)
 
     rets = bl.bl_returns()
     cov = bl.bl_cov()
-    ef = CLA(rets, cov, weight_bounds = (min_wt,max_wt)) # ef = EfficientFrontier(rets, cov, weight_bounds = (min_wt,max_wt))
-    # ef.add_objective(objective_functions.L2_reg, gamma=0.1) #ridge regression 
+    ef = CLA(rets, cov, weight_bounds = (min_wt,max_wt))
 
     return ef
 
@@ -223,7 +181,7 @@ def results(ef, objective_fn, risk_free_rate):
     # For performance plotting
     return asset_weights
 
-# wrote a simple function for performance plotting for now; have not included it in the main() body yet
+# simple function for performance plotting for now;
 def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark, period):
     returns = np.log(cleaned_adj_close).diff()
     for asset, weight in asset_weights.items():
@@ -251,8 +209,34 @@ def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark, peri
     plt.xticks(rotation=45)
     plt.legend(['Optimal Portfolio', str(benchmark)])
     st.pyplot(fig)
-        
-        
+
+
+def get_user_input_black_litterman(tickers):
+    view = [0] * len(tickers)
+    confidence = [0] * len(tickers)
+
+    views_confidence_df = pd.DataFrame({"View":view,"Confidence":confidence})
+    views_confidence_df.index = tickers    
+    views_confidence_df.reset_index(inplace=True)
+    views_confidence_df = views_confidence_df.rename(columns={'index': 'ticker'})
+    st.markdown("`View` of each ticker represent your view of the specified ticker's expected return within the range [-100 to 100]%")
+    st.markdown("`Confidence` of each ticker is the confidence in the expected returns specified in `View`, within the range [0 to 100]%")
+    st.markdown("If you have no views, leave `view` and `confidence` as 0")
+    views_confidence_df_return = AgGrid(views_confidence_df, editable=True, fit_columns_on_grid_load=True)['data']
+    views_dict ={}
+    for _,row in views_confidence_df_return.iterrows():
+        views_dict[row['ticker']] = row['View']/100
+    view_confidence = [conf/100 for conf in list(views_confidence_df_return['Confidence'])]
+
+    #data checks for views and confience
+    if ((views_confidence_df_return['View'] > 100) | (views_confidence_df_return['View'] < -100)).any():        
+        raise st.error('One or more of your views is out of range [-100,100]')
+
+    if ((views_confidence_df_return['Confidence'] > 100) | (views_confidence_df_return['Confidence'] < 0)).any():        
+        raise st.error('One or more of your confidence is out of range [0,100]')
+
+    return views_dict, view_confidence
+     
 # Global variables
 ESG_SCORE_FILENAME = "esg_scores.xlsx"
 MCAP_FILENAME = "mcap.xlsx"
@@ -262,9 +246,14 @@ def main():
     # Main logic
     set_page_config()
     combined_df = load_all_data()
-    selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict, view_confidence = set_sidebar(combined_df)
+    selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period = set_sidebar(combined_df)
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
     display_filtered_universe(combined_df_filtered)
+        
+    if model == "Black-Litterman":
+        st.markdown("## Black Litterman Views")
+        tickers = list(combined_df_filtered.Symbol)
+        views_dict, view_confidence = get_user_input_black_litterman(tickers)  
 
     if st.button(f'Load Price data for {len(combined_df_filtered)} tickers'):
         cleaned_adj_close = load_price_data(combined_df_filtered, period)
