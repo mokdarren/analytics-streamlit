@@ -48,10 +48,10 @@ def set_sidebar(combined_df):
     model = st.sidebar.selectbox("Model", ['Modern Portfolio Theory', 'Black-Litterman'])
 
     #Parameter: maximum weight of 1 asset
-    max_wt = st.sidebar.slider('Max weight (%)', 0, 100, value=10)/100
+    max_wt = st.sidebar.slider('Max weight (%)', 0, 100, value=10, help="Maximum weight for each asset")/100
 
     #Parameter: minimum weight for 1 asset
-    min_wt = st.sidebar.slider('Min weight (%)', -100, 0, value=0)/100
+    min_wt = st.sidebar.slider('Min weight (%)', -100, 0, value=0, help="Minimum weight for each asset")/100
 
     #Parameter: minimum esg score
     min_esg_score = st.sidebar.slider('Minimum ESG score (0-100)', 1, 100, value=80)
