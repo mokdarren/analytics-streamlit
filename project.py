@@ -65,27 +65,34 @@ def set_sidebar(combined_df):
     period = st.sidebar.selectbox("Data load period", ['ytd','1mo','3mo','6mo','1y','2y','5y','10y','max'])
 
     views_dict = {}
+    view_confidence = []
     if model == "Black-Litterman":
         # Number of Views (Limited to 10 views for now, only absolute views, min 1 view)
         views = st.sidebar.selectbox("Number of views", ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'])
         inputs = clean_data(combined_df, selected_sector, min_esg_score)
         tickers = list(inputs.Symbol)
+        view_confidence = np.zeros(len(tickers))
 
         for i in range(int(views)):
             views_text = "Views for Ticker " + str(i+1)
             returns_text = 'Returns ' + str(i+1)
+            confidence_text = 'Confidence of view ' + str(i+1) +  " (%)"
             # Ticker
             ticker = st.sidebar.selectbox(views_text, inputs)
             # Absolute View
             view = st.sidebar.slider(returns_text, -100, 100, value=0)/100
+            # Confidence
+            confidence = st.sidebar.slider(confidence_text, 0, 100, value=0)/100
             views_dict[ticker] = view
+            index = tickers.index(ticker)
+            view_confidence[index] = confidence
 
         view_ticker = list(views_dict.keys())
         for i in tickers:
             if i not in view_ticker:
                 views_dict[i] = 0
 
-    return selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict
+    return selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict, view_confidence
     
 @st.cache
 def load_snp_data():
@@ -170,13 +177,14 @@ def run_ef_model(cleaned_adj_close, weight_bounds):
 
     return ef
 
-def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bounds):
+def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bounds, view_confidence):
     min_wt, max_wt = weight_bounds
 
     delta = black_litterman.market_implied_risk_aversion(cleaned_adj_close, risk_free_rate = risk_free_rate)
-    cov_matrix = risk_models.sample_cov(cleaned_adj_close) # can explore other covariance methods
+    # cov_matrix = risk_models.sample_cov(cleaned_adj_close) # can explore other covariance methods
+    cov_matrix = risk_models.CovarianceShrinkage(cleaned_adj_close).ledoit_wolf()
     prior = black_litterman.market_implied_prior_returns(mcaps, delta, cov_matrix)
-    bl = BlackLittermanModel(cov_matrix, pi = prior, absolute_views=views_dict)
+    bl = BlackLittermanModel(cov_matrix, pi = prior, absolute_views=views_dict, omega="idzorek", view_confidences=view_confidence)
 
     rets = bl.bl_returns()
     cov = bl.bl_cov()
@@ -254,7 +262,7 @@ def main():
     # Main logic
     set_page_config()
     combined_df = load_all_data()
-    selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict = set_sidebar(combined_df)
+    selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict, view_confidence = set_sidebar(combined_df)
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
     display_filtered_universe(combined_df_filtered)
 
@@ -266,7 +274,7 @@ def main():
 
     if model == "Black-Litterman":
         mcaps = load_mcaps(combined_df_filtered)
-        ef = run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt))
+        ef = run_bl_model(cleaned_adj_close, mcaps=mcaps, views_dict=views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt), view_confidence=view_confidence)
         asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
     else:
         ef = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt))
