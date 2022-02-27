@@ -13,6 +13,9 @@ from pypfopt import expected_returns
 from pypfopt.cla import CLA
 from matplotlib.ticker import FuncFormatter
 from pypfopt import discrete_allocation
+from pypfopt import black_litterman
+from pypfopt.black_litterman import BlackLittermanModel
+from pypfopt import objective_functions
 import pypfopt.plotting as pplt
 
 #import from other files
@@ -40,6 +43,9 @@ def set_sidebar(combined_df):
     sorted_sector_unique = sorted( combined_df['GICS Sub-Industry'].unique() )
     selected_sector = st.sidebar.multiselect('Sector to remove', sorted_sector_unique, ['Tobacco','Casinos & Gaming','Aerospace & Defense'])
 
+    # Model Selection 
+    model = st.sidebar.selectbox("Model", ['Modern Portfolio Theory', 'Black-Litterman'])
+
     #Parameter: maximum weight of 1 asset
     max_wt = st.sidebar.slider('Max weight (%)', 0, 100, value=10)/100
 
@@ -58,7 +64,35 @@ def set_sidebar(combined_df):
     #Parameter: Period to download
     period = st.sidebar.selectbox("Data load period", ['ytd','1mo','3mo','6mo','1y','2y','5y','10y','max'])
 
-    return selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period
+    views_dict = {}
+    view_confidence = []
+    if model == "Black-Litterman":
+        # Number of Views (Limited to 10 views for now, only absolute views, min 1 view)
+        views = st.sidebar.selectbox("Number of views", ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'])
+        inputs = clean_data(combined_df, selected_sector, min_esg_score)
+        tickers = list(inputs.Symbol)
+        view_confidence = np.zeros(len(tickers))
+
+        for i in range(int(views)):
+            views_text = "Views for Ticker " + str(i+1)
+            returns_text = 'Returns ' + str(i+1)
+            confidence_text = 'Confidence of view ' + str(i+1) +  " (%)"
+            # Ticker
+            ticker = st.sidebar.selectbox(views_text, inputs)
+            # Absolute View
+            view = st.sidebar.slider(returns_text, -100, 100, value=0)/100
+            # Confidence
+            confidence = st.sidebar.slider(confidence_text, 0, 100, value=0)/100
+            views_dict[ticker] = view
+            index = tickers.index(ticker)
+            view_confidence[index] = confidence
+
+        view_ticker = list(views_dict.keys())
+        for i in tickers:
+            if i not in view_ticker:
+                views_dict[i] = 0
+
+    return selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict, view_confidence
     
 @st.cache
 def load_snp_data():
@@ -72,6 +106,17 @@ def load_snp_data():
 def load_esg_scores():
     esg_scores = pd.read_excel(ESG_SCORE_FILENAME)
     return esg_scores
+
+def load_mcaps(combined_df_filtered):
+    mcaps = pd.read_excel(MCAP_FILENAME)
+    to_keep = list(combined_df_filtered.Symbol)
+    df_tokeep = mcaps[mcaps["ticker"].isin(to_keep)]
+    df_tokeep = df_tokeep.reset_index()
+
+    mcaps = {}
+    for index, row in df_tokeep.iterrows():
+        mcaps[row['ticker']] = row['mcap']
+    return mcaps
 
 def load_all_data():
     snp_data = load_snp_data()
@@ -112,14 +157,43 @@ def load_price_data(combined_df_filtered, period):
     cleaned_adj_close = data['Adj Close'].dropna(axis=1,how='all')
     return cleaned_adj_close
 
-def run_ef_model(cleaned_adj_close, weight_bounds, objective_fn, risk_free_rate):
+# @st.cache
+# too slow to extract it in real time - extracting beforehand
+# def get_market_cap(combined_df_filtered): # takes a while to run
+#     mcaps = {}
+#     tickers = list(combined_df_filtered.Symbol)
+#     for i in tickers:
+#         market_cap = yf.Ticker(i).info["marketCap"]
+#         mcaps[i] = market_cap
+#     return mcaps
+
+def run_ef_model(cleaned_adj_close, weight_bounds):
     min_wt, max_wt = weight_bounds
     #Annualised return
     mu = expected_returns.mean_historical_return(cleaned_adj_close)
     #Sample var
     Sigma = risk_models.sample_cov(cleaned_adj_close)
     ef = CLA(mu, Sigma, weight_bounds=(min_wt,max_wt))
-    
+
+    return ef
+
+def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bounds, view_confidence):
+    min_wt, max_wt = weight_bounds
+
+    delta = black_litterman.market_implied_risk_aversion(cleaned_adj_close, risk_free_rate = risk_free_rate)
+    cov_matrix = risk_models.sample_cov(cleaned_adj_close) # can explore other covariance methods
+    # cov_matrix = risk_models.CovarianceShrinkage(cleaned_adj_close).ledoit_wolf()
+    prior = black_litterman.market_implied_prior_returns(mcaps, delta, cov_matrix)
+    bl = BlackLittermanModel(cov_matrix, pi = prior, absolute_views=views_dict, omega="idzorek", view_confidences=view_confidence)
+
+    rets = bl.bl_returns()
+    cov = bl.bl_cov()
+    ef = CLA(rets, cov, weight_bounds = (min_wt,max_wt)) # ef = EfficientFrontier(rets, cov, weight_bounds = (min_wt,max_wt))
+    # ef.add_objective(objective_functions.L2_reg, gamma=0.1) #ridge regression 
+
+    return ef
+
+def results(ef, objective_fn, risk_free_rate):
     fig, ax = plt.subplots()
     ax = pplt.plot_efficient_frontier(ef, ef_param="risk", show_assets=True)
     if objective_fn == "Max Sharpe":
@@ -172,22 +246,23 @@ def plot_portfolio_performance(cleaned_adj_close, asset_weights, benchmark, peri
     fig, ax = plt.subplots(figsize=(8,5))
     ax.set_ylabel("Cumulative Return")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
-    plt.plot(returns[['Portfolio_Ret', benchmark]], label=['Optimal Portfolio',benchmark])
+    plt.plot(returns[['Portfolio_Ret', benchmark]])
 
     plt.xticks(rotation=45)
-    plt.legend()
+    plt.legend(['Optimal Portfolio', str(benchmark)])
     st.pyplot(fig)
         
         
 # Global variables
 ESG_SCORE_FILENAME = "esg_scores.xlsx"
+MCAP_FILENAME = "mcap.xlsx"
 BENCHMARK = "^GSPC" #S&P500 index
 
 def main():
     # Main logic
     set_page_config()
     combined_df = load_all_data()
-    selected_sector, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period = set_sidebar(combined_df)
+    selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period, views_dict, view_confidence = set_sidebar(combined_df)
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
     display_filtered_universe(combined_df_filtered)
 
@@ -197,8 +272,14 @@ def main():
     else:
         st.stop()
 
-    asset_weights = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt), objective_fn = objective_fn, risk_free_rate=risk_free_rate)
-    #plotting
+    if model == "Black-Litterman":
+        mcaps = load_mcaps(combined_df_filtered)
+        ef = run_bl_model(cleaned_adj_close, mcaps=mcaps, views_dict=views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt), view_confidence=view_confidence)
+        asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
+    else:
+        ef = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt))
+        asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
+    # plotting
     plot_portfolio_performance(cleaned_adj_close, asset_weights, BENCHMARK, period)
     
 main()
