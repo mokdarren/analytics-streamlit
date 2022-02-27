@@ -257,7 +257,7 @@ def main():
         views_dict, view_confidence = get_user_input_black_litterman(tickers)  
 
     if len(combined_df_filtered) > 100:
-        st.markdown(f"Too many tickers in universe for model to solve. Current: {len(combined_df_filtered)} Maximum: 100 ")
+        st.markdown(f'Too many tickers in universe for model to solve. <span style="color:red">Current: {len(combined_df_filtered)} Maximum: 100 </span>', unsafe_allow_html=True)
     elif st.button(f'Load Price data for {len(combined_df_filtered)} tickers'):
         cleaned_adj_close = load_price_data(combined_df_filtered, period)
         st.markdown(filedownload(cleaned_adj_close, "adj_close.csv","Download price data as CSV", index=True), unsafe_allow_html=True)
