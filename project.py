@@ -21,6 +21,8 @@ from st_aggrid import AgGrid
 
 #import from other files
 from helpers import filedownload
+from grid_options_builder import GridOptionsBuilder
+from st_aggrid.shared import GridUpdateMode, DataReturnMode 
 
 def set_page_config():
     st.set_page_config(layout="wide")
@@ -54,7 +56,7 @@ def set_sidebar(combined_df):
     min_wt = st.sidebar.slider('Min weight (%)', -100, 0, value=0, help="Minimum weight for each asset")/100
 
     #Parameter: minimum esg score
-    min_esg_score = st.sidebar.slider('Minimum ESG score (0-100)', 1, 100, value=80)
+    min_esg_score = st.sidebar.slider('Minimum ESG score (50-100)', 50, 100, value=80)
     
     #Parameter: objective function
     objective_fn = st.sidebar.selectbox("Objective Function", ['Max Sharpe', 'Min Vol'], help="Use the Critical Line Algorithm to solve for selected objective function")
@@ -112,7 +114,6 @@ def clean_data(combined_df, selected_sector, min_esg_score):
 def display_filtered_universe(combined_df_filtered):
     st.header('Universe')
     st.write('Data Dimension: ' + str(combined_df_filtered.shape[0]) + ' rows and ' + str(combined_df_filtered.shape[1]) + ' columns.')
-    st.dataframe(combined_df_filtered)
     st.markdown(filedownload(combined_df_filtered, "SP500.csv","Download ticker universe as CSV"), unsafe_allow_html=True)
 
 # note cache causes some error if code is not ready
@@ -249,7 +250,18 @@ def main():
     combined_df = load_all_data()
     selected_sector, model, min_wt, max_wt, min_esg_score, objective_fn, risk_free_rate, period = set_sidebar(combined_df)
     combined_df_filtered = clean_data(combined_df, selected_sector, min_esg_score)
-    display_filtered_universe(combined_df_filtered)
+
+    gb = GridOptionsBuilder.from_dataframe(combined_df_filtered)
+    gb.configure_selection(selection_mode='multiple', use_checkbox=True, pre_selected_rows = list(range(len(combined_df_filtered))), )
+    grid_options = gb.build()
+    grid_response = AgGrid(combined_df_filtered, gridOptions=grid_options, update_mode="SELECTION_CHANGED")
+
+    grid_data = grid_response['data']
+    selected = pd.DataFrame(grid_response['selected_rows'])
+
+    print('-'*30)
+    display_filtered_universe(selected)
+    combined_df_filtered = selected
     
     if model == "Black-Litterman":
         st.markdown("## Black Litterman Views")
