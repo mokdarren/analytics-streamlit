@@ -47,7 +47,7 @@ def set_sidebar(combined_df):
     selected_sector = st.sidebar.multiselect('Sector to remove', sorted_sector_unique, ['Tobacco','Casinos & Gaming','Aerospace & Defense'])
 
     # Model Selection 
-    model = st.sidebar.selectbox("Model", ['Modern Portfolio Theory', 'Black-Litterman'])
+    model = st.sidebar.selectbox("Model", ['Modern Portfolio Theory (Basic)', 'Black-Litterman (Advanced with additional views'], help="Choose Black-Litterman if you want to include your views into the model")
 
     #Parameter: maximum weight of 1 asset
     max_wt = st.sidebar.slider('Max weight (%)', 0, 100, value=10, help="Maximum weight for each asset")/100
@@ -59,7 +59,7 @@ def set_sidebar(combined_df):
     min_esg_score = st.sidebar.slider('Minimum ESG score (50-100)', 50, 100, value=80)
     
     #Parameter: objective function
-    objective_fn = st.sidebar.selectbox("Objective Function", ['Max Sharpe', 'Min Vol'], help="Use the Critical Line Algorithm to solve for selected objective function")
+    objective_fn = st.sidebar.selectbox("Objective Function", ['Max Sharpe (Highest risk-return ratio)', 'Min Volatility (Lowest Risk)'], help="Use the Critical Line Algorithm to solve for selected objective function")
 
     #Parameter: Risk free rate
     risk_free_rate = st.sidebar.number_input("Risk Free Rate (%)", min_value = 0.0, max_value=20.0, step=0.01, value=6.5)/100
@@ -180,7 +180,7 @@ def results(ef, objective_fn, risk_free_rate):
     pplt.plot_weights(clean_wts)
     col2.pyplot(fig2)
     col2.write(clean_wts)
-    col2.markdown(f'Annualised Returns: {ret_tangent*100:.2f}%  \n Sigma: {std_tangent*100:.2f}%  \n Sharpe Ratio: {(ret_tangent-risk_free_rate)/std_tangent:.2f}')
+    col2.markdown(f'Annualised Returns: {ret_tangent*100:.2f}%  \n Annualised Volatility: {std_tangent*100:.2f}%  \n Sharpe Ratio: {(ret_tangent-risk_free_rate)/std_tangent:.2f}')
     
     # For performance plotting
     return asset_weights
