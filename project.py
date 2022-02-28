@@ -274,18 +274,18 @@ def main():
     elif st.button(f'Load Price data for {len(combined_df_filtered)} tickers'):
         cleaned_adj_close = load_price_data(combined_df_filtered, period)
         st.markdown(filedownload(cleaned_adj_close, "adj_close.csv","Download price data as CSV", index=True), unsafe_allow_html=True)
+
+        if model == "Black-Litterman":
+            mcaps = load_mcaps(combined_df_filtered)
+            ef = run_bl_model(cleaned_adj_close, mcaps=mcaps, views_dict=views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt), view_confidence=view_confidence)
+            asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
+        else:
+            ef = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt))
+            asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
+        # plotting
+        plot_portfolio_performance(cleaned_adj_close, asset_weights, BENCHMARK, period)
     else:
         st.stop()
-
-    if model == "Black-Litterman":
-        mcaps = load_mcaps(combined_df_filtered)
-        ef = run_bl_model(cleaned_adj_close, mcaps=mcaps, views_dict=views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt), view_confidence=view_confidence)
-        asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
-    else:
-        ef = run_ef_model(cleaned_adj_close, weight_bounds=(min_wt,max_wt))
-        asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
-    # plotting
-    plot_portfolio_performance(cleaned_adj_close, asset_weights, BENCHMARK, period)
     
 main()
 
