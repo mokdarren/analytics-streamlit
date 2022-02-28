@@ -47,7 +47,7 @@ def set_sidebar(combined_df):
     selected_sector = st.sidebar.multiselect('Sector to remove', sorted_sector_unique, ['Tobacco','Casinos & Gaming','Aerospace & Defense'])
 
     # Model Selection 
-    model = st.sidebar.selectbox("Model", ['Modern Portfolio Theory (Basic)', 'Black-Litterman (Advanced with additional views'], help="Choose Black-Litterman if you want to include your views into the model")
+    model = st.sidebar.selectbox("Model", ['Modern Portfolio Theory (Basic)', 'Black-Litterman (Advanced with additional views)'], help="Choose Black-Litterman if you want to include your views into the model")
 
     #Parameter: maximum weight of 1 asset
     max_wt = st.sidebar.slider('Max weight (%)', 0, 100, value=10, help="Maximum weight for each asset")/100
@@ -158,9 +158,9 @@ def run_bl_model(cleaned_adj_close, mcaps, views_dict, risk_free_rate, weight_bo
 def results(ef, objective_fn, risk_free_rate):
     fig, ax = plt.subplots()
     ax = pplt.plot_efficient_frontier(ef, ef_param="risk", show_assets=True)
-    if objective_fn == "Max Sharpe":
+    if objective_fn == "Max Sharpe (Highest risk-return ratio)":
         asset_weights = ef.max_sharpe()
-    elif objective_fn == "Min Vol":
+    elif objective_fn == "Min Volatility (Lowest Risk)":
         asset_weights = ef.min_volatility()
     ret_tangent, std_tangent, _ = ef.portfolio_performance(risk_free_rate = risk_free_rate)
     
@@ -266,7 +266,7 @@ def main():
     display_filtered_universe(selected)
     combined_df_filtered = selected
     
-    if model == "Black-Litterman":
+    if model == "Black-Litterman (Advanced with additional views)":
         st.markdown("## Black Litterman Views")
         tickers = list(combined_df_filtered.Symbol)
         views_dict, view_confidence = get_user_input_black_litterman(tickers)  
@@ -277,7 +277,7 @@ def main():
         cleaned_adj_close = load_price_data(combined_df_filtered, period)
         st.markdown(filedownload(cleaned_adj_close, "adj_close.csv","Download price data as CSV", index=True), unsafe_allow_html=True)
 
-        if model == "Black-Litterman":
+        if model == "Black-Litterman (Advanced with additional views)":
             mcaps = load_mcaps(combined_df_filtered)
             ef = run_bl_model(cleaned_adj_close, mcaps=mcaps, views_dict=views_dict, risk_free_rate=risk_free_rate, weight_bounds=(min_wt,max_wt), view_confidence=view_confidence)
             asset_weights = results(ef, objective_fn = objective_fn, risk_free_rate=risk_free_rate)
